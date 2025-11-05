@@ -279,12 +279,21 @@ namespace ns3 {
 				if (qIndex == -1){ // high prio
 					p = m_rdmaEQ->DequeueQindex(qIndex);
 					m_traceDequeue(p, 0);
+					std::cout << "FlowInfo-1, PktUID: " << p->GetUid()
+					<< std::endl;
 					TransmitStart(p);
 					return;
 				}
 				// a qp dequeue a packet
 				Ptr<RdmaQueuePair> lastQp = m_rdmaEQ->GetQp(qIndex);
-				p = m_rdmaEQ->DequeueQindex(qIndex);
+                p = m_rdmaEQ->DequeueQindex(qIndex);
+				std::cout << "FlowInfo, PktSize: " << p->GetSize()
+				<< ", PktUID: " << p->GetUid()
+				<< ", OriginalSrc: " << lastQp->GetSrc()
+				<< ", FinalDst: " << lastQp->GetDest()
+				<< ", Sport: " << lastQp->GetPort()
+				<< ", FlowTag: " << lastQp->GetTag()
+				<< std::endl;
 				// transmit
 				m_traceQpDequeue(p, lastQp);
 				TransmitStart(p);
@@ -470,33 +479,53 @@ namespace ns3 {
 	}
 
 	bool
-		QbbNetDevice::TransmitStart(Ptr<Packet> p)
+	QbbNetDevice::TransmitStart(Ptr<Packet> p)
 	{
-		NS_LOG_FUNCTION(this << p);
-		NS_LOG_LOGIC("UID is " << p->GetUid() << ")");
-		//
-		// This function is called to start the process of transmitting a packet.
-		// We need to tell the channel that we've started wiggling the wire and
-		// schedule an event that will be executed when the transmission is complete.
-		//
-		NS_ASSERT_MSG(m_txMachineState == READY, "Must be READY to transmit");
-		if(m_txMachineState == READY){
-			//std:://cout<<"must be ready to transmit\n";
-		}
-		m_txMachineState = BUSY;
-		m_currentPkt = p;
-		m_phyTxBeginTrace(m_currentPkt);
-		Time txTime = m_bps.CalculateBytesTxTime(p->GetSize());
-		Time txCompleteTime = txTime + m_tInterframeGap;
-		NS_LOG_LOGIC("Schedule TransmitCompleteEvent in " << txCompleteTime.GetSeconds() << "sec");
-		Simulator::Schedule(txCompleteTime, &QbbNetDevice::TransmitComplete, this);
+	    NS_LOG_FUNCTION(this << p);
+	    NS_LOG_LOGIC("UID is " << p->GetUid() << ")");
 
-		bool result = m_channel->TransmitStart(p, this, txTime);
-		if (result == false)
-		{
-			m_phyTxDropTrace(p);
-		}
-		return result;
+	    // // Find immediate destination node ID
+	    // uint32_t immediate_dst_id = -1; // Use -1 or another invalid ID to indicate not found
+	    // for (uint32_t i = 0; i < m_channel->GetNDevices(); ++i)
+	    // {
+	    //     if (m_channel->GetDevice(i) != this)
+	    //     {
+	    //         immediate_dst_id = m_channel->GetDevice(i)->GetNode()->GetId();
+	    //         break;
+	    //     }
+	    // }
+
+
+	    //
+	    // This function is called to start the process of transmitting a packet.
+	    // We need to tell the channel that we've started wiggling the wire and
+	    // schedule an event that will be executed when the transmission is complete.
+	    //
+	    NS_ASSERT_MSG(m_txMachineState == READY, "Must be READY to transmit");
+	    if(m_txMachineState == READY){
+	        //std:://cout<<"must be ready to transmit\n";
+	    }
+	    m_txMachineState = BUSY;
+	    m_currentPkt = p;
+	    m_phyTxBeginTrace(m_currentPkt);
+	    Time txTime = m_bps.CalculateBytesTxTime(p->GetSize());
+	    // Log Link-Level transmission info
+
+	    Time txCompleteTime = txTime + m_tInterframeGap;
+	    NS_LOG_LOGIC("Schedule TransmitCompleteEvent in " << txCompleteTime.GetSeconds() << "sec");
+	    Simulator::Schedule(txCompleteTime, &QbbNetDevice::TransmitComplete, this);
+	    std::cout << "LinkTx, Timestamp: " << Simulator::Now().GetNanoSeconds() << "ns"
+				  << ", txCompleteTime: " << txCompleteTime.GetNanoSeconds() << "ns"
+				  << ", PktSize: " << p->GetSize()
+				  << ", PktUID: " << p->GetUid()
+	              << ", LinkSrc: " << m_node->GetId()
+	              << std::endl;
+	    bool result = m_channel->TransmitStart(p, this, txTime);
+	    if (result == false)
+	    {
+	        m_phyTxDropTrace(p);
+	    }
+	    return result;
 	}
 
 	Ptr<Channel>

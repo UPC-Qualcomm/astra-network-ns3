@@ -20,8 +20,8 @@
 #include "ns3/applications-module.h"
 #include "ns3/core-module.h"
 #include "ns3/error-model.h"
-#include "ns3/global-route-manager.h"
 #include "ns3/internet-module.h"
+#include "ns3/flow-monitor-module.h"
 #include "ns3/ipv4-static-routing-helper.h"
 #include "ns3/packet.h"
 #include "ns3/point-to-point-helper.h"
@@ -79,6 +79,9 @@ uint32_t link_down_A = 0, link_down_B = 0;
 uint32_t enable_trace = 1;
 
 uint32_t buffer_size = 16;
+uint32_t ecmp_seed = 1;
+
+bool use_precomputed_routes = true; // New flag
 
 uint32_t qlen_dump_interval = 1000, qlen_mon_interval = 100;
 uint64_t qlen_mon_start = 0, qlen_mon_end = 2100000000;
@@ -120,6 +123,10 @@ map<Ptr<Node>, map<Ptr<Node>, uint64_t>> pairTxDelay;
 map<uint32_t, map<uint32_t, uint64_t>> pairBw;
 map<Ptr<Node>, map<Ptr<Node>, uint64_t>> pairBdp;
 map<uint32_t, map<uint32_t, uint64_t>> pairRtt;
+
+// New data structure for pre-computed routes: map<dst_id, map<src_id, vector<path>>>
+// A path is a vector of node IDs.
+map<uint32_t, map<uint32_t, vector<vector<uint32_t>>>> precomputed_routes;
 
 struct FlowInput {
   uint32_t src, dst, pg, maxPacketCount, port, dport;
@@ -265,22 +272,91 @@ void CalculateRoutes(NodeContainer &n) {
   }
 }
 
+void CalculateMetricsFromRoutes() {
+    for (auto const& [dst_id, src_map] : precomputed_routes) {
+        Ptr<Node> dst_node = n.Get(dst_id);
+        if (dst_node->GetNodeType() != 0) continue;
+
+        for (auto const& [src_id, paths] : src_map) {
+            Ptr<Node> src_node = n.Get(src_id);
+            if (src_node->GetNodeType() != 0) continue;
+
+            // Use the first path to calculate metrics, assuming ECMP paths have similar metrics.
+            if (!paths.empty()) {
+                const auto& path = paths[0];
+                uint64_t total_delay = 0;
+                uint64_t total_tx_delay = 0;
+                uint64_t bottleneck_bw = 0xfffffffffffffffflu;
+
+                for (size_t i = 0; i < path.size() - 1; ++i) {
+                    Ptr<Node> u = n.Get(path[i]);
+                    Ptr<Node> v = n.Get(path[i+1]);
+
+                    if (nbr2if.count(u) && nbr2if[u].count(v)) {
+                        const auto& link_info = nbr2if[u][v];
+                        total_delay += link_info.delay;
+                        total_tx_delay += packet_payload_size * 1000000000lu * 8 / link_info.bw;
+                        if (link_info.bw < bottleneck_bw) {
+                            bottleneck_bw = link_info.bw;
+                        }
+                    }
+                }
+                pairDelay[dst_node][src_node] = total_delay;
+                pairTxDelay[dst_node][src_node] = total_tx_delay;
+                pairBw[dst_id][src_id] = bottleneck_bw;
+            }
+        }
+    }
+}
+
 void SetRoutingEntries() {
-  for (auto i = nextHop.begin(); i != nextHop.end(); i++) {
-    Ptr<Node> node = i->first;
-    auto &table = i->second;
-    for (auto j = table.begin(); j != table.end(); j++) {
-      Ptr<Node> dst = j->first;
-      Ipv4Address dstAddr = dst->GetObject<Ipv4>()->GetAddress(1, 0).GetLocal();
-      vector<Ptr<Node>> nexts = j->second;
-      for (int k = 0; k < (int)nexts.size(); k++) {
-        Ptr<Node> next = nexts[k];
-        uint32_t interface = nbr2if[node][next].idx;
-        if (node->GetNodeType() == 1)
-          DynamicCast<SwitchNode>(node)->AddTableEntry(dstAddr, interface);
-        else {
-          node->GetObject<RdmaDriver>()->m_rdma->AddTableEntry(dstAddr,
-                                                               interface);
+  if (use_precomputed_routes) {
+    // Use pre-computed routes
+    for (auto const& [dst_id, src_map] : precomputed_routes) {
+      if (n.Get(dst_id)->GetNodeType() != 0) continue; // Destination must be a host
+      Ipv4Address dstAddr = n.Get(dst_id)->GetObject<Ipv4>()->GetAddress(1, 0).GetLocal();
+
+      for (auto const& [src_id, paths] : src_map) {
+        for (const auto& path : paths) {
+          // A path is a sequence of node IDs, like [src, hop1, hop2, ..., dst]
+          for (size_t i = 0; i < path.size() - 1; ++i) {
+            Ptr<Node> current_node = n.Get(path[i]);
+            Ptr<Node> next_hop_node = n.Get(path[i+1]);
+            
+            // Find the interface index for the link from current_node to next_hop_node
+            if (nbr2if.count(current_node) && nbr2if[current_node].count(next_hop_node)) {
+                uint32_t interface = nbr2if[current_node][next_hop_node].idx;
+
+                if (current_node->GetNodeType() == 1) { // Switch
+                  DynamicCast<SwitchNode>(current_node)->AddTableEntry(dstAddr, interface);
+                } else { // Host
+                  current_node->GetObject<RdmaDriver>()->m_rdma->AddTableEntry(dstAddr, interface);
+                }
+            } else {
+                NS_LOG_WARN("SetRoutingEntries: Could not find interface for link " << path[i] << " -> " << path[i+1]);
+            }
+          }
+        }
+      }
+    }
+  } else {
+    // Original logic using nextHop map from BFS
+    for (auto i = nextHop.begin(); i != nextHop.end(); i++) {
+      Ptr<Node> node = i->first;
+      auto &table = i->second;
+      for (auto j = table.begin(); j != table.end(); j++) {
+        Ptr<Node> dst = j->first;
+        Ipv4Address dstAddr = dst->GetObject<Ipv4>()->GetAddress(1, 0).GetLocal();
+        vector<Ptr<Node>> nexts = j->second;
+        for (int k = 0; k < (int)nexts.size(); k++) {
+          Ptr<Node> next = nexts[k];
+          uint32_t interface = nbr2if[node][next].idx;
+          if (node->GetNodeType() == 1)
+                          DynamicCast<SwitchNode>(node)->AddTableEntry(dstAddr, interface);
+          else {
+            node->GetObject<RdmaDriver>()->m_rdma->AddTableEntry(dstAddr,
+                                                                 interface);
+          }
         }
       }
     }
@@ -320,8 +396,6 @@ uint64_t get_nic_rate(NodeContainer &n) {
       return DynamicCast<QbbNetDevice>(n.Get(i)->GetDevice(1))
           ->GetDataRate()
           .GetBitRate();
-  // TODO: Complain if you cannot find the NIC rate.
-  return 0;
 }
 
 bool ReadConf(string network_configuration) {
@@ -342,6 +416,10 @@ bool ReadConf(string network_configuration) {
       uint32_t v;
       conf >> v;
       enable_qcn = v;
+    } else if (key.compare("USE_PRECOMPUTED_ROUTES") == 0) {
+      uint32_t v;
+      conf >> v;
+      use_precomputed_routes = v;
     } else if (key.compare("USE_DYNAMIC_PFC_THRESHOLD") == 0) {
       uint32_t v;
       conf >> v;
@@ -513,6 +591,8 @@ bool ReadConf(string network_configuration) {
       conf >> pint_log_base;
     } else if (key.compare("PINT_PROB") == 0) {
       conf >> pint_prob;
+    } else if (key.compare("ECMP_SEED") == 0) {
+      conf >> ecmp_seed;
     }
     fflush(stdout);
   }
@@ -549,24 +629,61 @@ void SetConfig() {
   }
 }
 
-bool SetupNetwork(void (*qp_finish)(FILE *, Ptr<RdmaQueuePair>)) {
+bool ReadRoutesFromTopo(std::ifstream& topof_stream) {
+    std::string line;
+    // Skip any empty lines after the links section
+    while (std::getline(topof_stream, line) && line.empty());
+
+    // Check for the "ROUTES" marker
+    if (line.find("ROUTES") == std::string::npos) {
+        std::cerr << "Error: ROUTES marker not found in topology file." << std::endl;
+        return false;
+    }
+
+    while (std::getline(topof_stream, line)) {
+        if (line.empty()) continue;
+
+        std::stringstream ss(line);
+        uint32_t src, dst;
+        char colon;
+        ss >> src >> colon >> dst >> colon; // Parses "src:dst:"
+
+        std::string path_str;
+        std::getline(ss, path_str);
+        // Clean up the path string: remove spaces, brackets
+        path_str.erase(std::remove(path_str.begin(), path_str.end(), ' '), path_str.end());
+        path_str.erase(std::remove(path_str.begin(), path_str.end(), '['), path_str.end());
+        path_str.erase(std::remove(path_str.begin(), path_str.end(), ']'), path_str.end());
+
+        std::vector<uint32_t> path;
+        std::stringstream path_ss(path_str);
+        std::string node_id_str;
+        while (std::getline(path_ss, node_id_str, ',')) {
+            path.push_back(std::stoul(node_id_str));
+        }
+        precomputed_routes[dst][src].push_back(path);
+    }
+    return true;
+}
+
+Ptr<FlowMonitor> SetupNetwork(void (*qp_finish)(FILE *, Ptr<RdmaQueuePair>)) {
 
   topof.open(topology_file.c_str());
   if (!topof.is_open()) {
     std::cerr << "Error: cannot open topology file: " << topology_file << std::endl;
-    return false;
+    return nullptr;
   }
 
   flowf.open(flow_file.c_str());
   if (!flowf.is_open()) {
     std::cerr << "Error: cannot open flow file: " << flow_file << std::endl;
-    return false;
+    return nullptr;
   }
 
   tracef.open(trace_file.c_str());
   if (!tracef.is_open()) {
     std::cerr << "Error: cannot open trace file: " << trace_file << std::endl;
-    return false;
+    return nullptr;
   }
 
   uint32_t node_num, switch_num, link_num, trace_num;
@@ -587,6 +704,7 @@ bool SetupNetwork(void (*qp_finish)(FILE *, Ptr<RdmaQueuePair>)) {
       Ptr<SwitchNode> sw = CreateObject<SwitchNode>();
       n.Add(sw);
       sw->SetAttribute("EcnEnabled", BooleanValue(enable_qcn));
+      sw->SetEcmpSeed(ecmp_seed + sw->GetId());
     }
   }
 
@@ -799,9 +917,17 @@ bool SetupNetwork(void (*qp_finish)(FILE *, Ptr<RdmaQueuePair>)) {
     RdmaEgressQueue::ack_q_idx = 3;
 
   // setup routing
-  CalculateRoutes(n);
+  if (use_precomputed_routes) {
+    if (!ReadRoutesFromTopo(topof)) {
+      return nullptr; // Stop if routes are enabled but cannot be read
+    }
+    CalculateMetricsFromRoutes(); // Recalculate metrics based on precomputed routes
+  } else {
+    CalculateRoutes(n);
+  }
   SetRoutingEntries();
 
+  /*
   //
   // get BDP and delay
   //
@@ -826,6 +952,7 @@ bool SetupNetwork(void (*qp_finish)(FILE *, Ptr<RdmaQueuePair>)) {
     }
   }
   printf("maxRtt=%lu maxBdp=%lu\n", maxRtt, maxBdp);
+  */
 
   //
   // setup switch CC
@@ -834,7 +961,7 @@ bool SetupNetwork(void (*qp_finish)(FILE *, Ptr<RdmaQueuePair>)) {
     if (n.Get(i)->GetNodeType() == 1) { // switch
       Ptr<SwitchNode> sw = DynamicCast<SwitchNode>(n.Get(i));
       sw->SetAttribute("CcMode", UintegerValue(cc_mode));
-      sw->SetAttribute("MaxRtt", UintegerValue(maxRtt));
+      // sw->SetAttribute("MaxRtt", UintegerValue(maxRtt));
     }
   }
 
@@ -852,9 +979,27 @@ bool SetupNetwork(void (*qp_finish)(FILE *, Ptr<RdmaQueuePair>)) {
     trace_nodes = NodeContainer(trace_nodes, n.Get(nid));
   }
 
-  FILE *trace_output = fopen(trace_output_file.c_str(), "w");
+  FILE *trace_output = fopen(trace_output_file.c_str(), "wb");
   if (enable_trace)
     qbb.EnableTracing(trace_output, trace_nodes);
+    
+      // dump link speed to trace file
+      /*
+      {
+        SimSetting sim_setting;
+        for (auto i : nbr2if) {
+          sim_setting.AddPortSpeed(i.first->GetId(), i.second.begin()->first->GetId(),
+                                   i.second.begin()->second.bw);
+        }
+        // sim_setting.win = maxBdp;
+        sim_setting.Serialize(trace_output);
+      }
+      */
+    
+      // Ipv4GlobalRoutingHelper::PopulateRoutingTables(); // This conflicts with custom routing.
+    
+      NS_LOG_INFO("Create Applications.");
+    // ...existing code...cing(trace_output, trace_nodes);
 
   // dump link speed to trace file
   {
@@ -870,13 +1015,16 @@ bool SetupNetwork(void (*qp_finish)(FILE *, Ptr<RdmaQueuePair>)) {
         sim_setting.port_speed[node][intf] = bps;
       }
     }
-    sim_setting.win = maxBdp;
-    sim_setting.Serialize(trace_output);
+    // sim_setting.win = maxBdp;
+    // sim_setting.Serialize(trace_output);
   }
 
-  Ipv4GlobalRoutingHelper::PopulateRoutingTables();
+  // Ipv4GlobalRoutingHelper::PopulateRoutingTables(); // This conflicts with custom routing.
 
   NS_LOG_INFO("Create Applications.");
+
+  FlowMonitorHelper flowmon;
+  Ptr<FlowMonitor> monitor = flowmon.InstallAll();
 
   Time interPacketInterval = Seconds(0.0000005 / 2);
   // maintain port number for each host
@@ -904,5 +1052,5 @@ bool SetupNetwork(void (*qp_finish)(FILE *, Ptr<RdmaQueuePair>)) {
   Simulator::Schedule(NanoSeconds(qlen_mon_start), &monitor_buffer, qlen_output,
                       &n);
 
-  return true;
+  return monitor;
 }

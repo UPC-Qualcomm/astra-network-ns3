@@ -414,20 +414,21 @@ void QbbHelper::EnableTracingDevice(FILE *file, Ptr<QbbNetDevice> nd){
 	//oss << "/NodeList/" << nodeid << "/DeviceList/" << deviceid << "/$ns3::QbbNetDevice/TxBeQueue/BeqEnqueue";
 	//Config::ConnectWithoutContext (oss.str (), MakeBoundCallback (&QbbHelper::EnqueueDetailCallback, file, nd));
 
-	//nd->GetQueue()->TraceConnectWithoutContext("BeqDequeue", MakeBoundCallback (&QbbHelper::DequeueDetailCallback, file, nd));
-	//oss.str ("");
-	//oss << "/NodeList/" << nodeid << "/DeviceList/" << deviceid << "/$ns3::QbbNetDevice/TxBeQueue/BeqDequeue";
-	//Config::ConnectWithoutContext (oss.str (), MakeBoundCallback (&QbbHelper::DequeueDetailCallback, file, nd));
+	nd->GetQueue()->TraceConnectWithoutContext("BeqDequeue", MakeBoundCallback (&QbbHelper::DequeueDetailCallback, file, nd));
+	oss.str ("");
+	oss << "/NodeList/" << nodeid << "/DeviceList/" << deviceid << "/$ns3::QbbNetDevice/TxBeQueue/BeqDequeue";
+	Config::ConnectWithoutContext (oss.str (), MakeBoundCallback (&QbbHelper::DequeueDetailCallback, file, nd));
 
-	//nd->GetRdmaQueue()->TraceConnectWithoutContext("RdmaEnqueue", MakeBoundCallback (&QbbHelper::EnqueueDetailCallback, file, nd));
-	//oss.str ("");
-	//oss << "/NodeList/" << nodeid << "/DeviceList/" << deviceid << "/$ns3::QbbNetDevice/RdmaEgressQueue/RdmaEnqueue";
-	//Config::ConnectWithoutContext (oss.str (), MakeBoundCallback (&QbbHelper::EnqueueDetailCallback, file, nd));
+	nd->GetRdmaQueue()->TraceConnectWithoutContext("RdmaEnqueue", MakeBoundCallback (&QbbHelper::EnqueueDetailCallback, file, nd));
+	oss.str ("");
+	oss << "/NodeList/" << nodeid << "/DeviceList/" << deviceid << "/$ns3::QbbNetDevice/RdmaEgressQueue/RdmaEnqueue";
+	Config::ConnectWithoutContext (oss.str (), MakeBoundCallback (&QbbHelper::EnqueueDetailCallback, file, nd));
 
-	//nd->GetRdmaQueue()->TraceConnectWithoutContext("RdmaDequeue", MakeBoundCallback (&QbbHelper::DequeueDetailCallback, file, nd));
-	//oss.str ("");
-	//oss << "/NodeList/" << nodeid << "/DeviceList/" << deviceid << "/$ns3::QbbNetDevice/RdmaEgressQueue/RdmaDequeue";
-	//Config::ConnectWithoutContext (oss.str (), MakeBoundCallback (&QbbHelper::DequeueDetailCallback, file, nd));
+	nd->GetRdmaQueue()->TraceConnectWithoutContext("RdmaDequeue", MakeBoundCallback (&QbbHelper::DequeueDetailCallback, file, nd));
+	oss.str ("");
+	oss << "/NodeList/" << nodeid << "/DeviceList/" << deviceid << "/$ns3::QbbNetDevice/RdmaEgressQueue/RdmaDequeue";
+	Config::ConnectWithoutContext (oss.str (), MakeBoundCallback (&QbbHelper::DequeueDetailCallback, file, nd));
+
 }
 
 void QbbHelper::EnableTracing(FILE *file, NodeContainer node_container){

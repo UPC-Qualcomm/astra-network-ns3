@@ -98,6 +98,7 @@ public:
 	uint32_t GetSrc();
 	uint32_t GetDest();
 	uint64_t GetTag();
+	uint16_t GetPort();
 	void SetTag(uint64_t tag);void SetSrc(uint32_t src);void SetDest(uint32_t dest);void SetInitialSize(uint64_t size);
 	uint32_t GetHash(void);
 	void Acknowledge(uint64_t ack);

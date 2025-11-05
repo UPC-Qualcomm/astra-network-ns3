@@ -100,6 +100,10 @@ uint64_t RdmaQueuePair::GetTag(){
 	return m_tag;
 }
 
+uint16_t RdmaQueuePair::GetPort(){
+	return sport;
+}
+
 void RdmaQueuePair::SetInitialSize(uint64_t size){
 	m_init_size = size;
 }
