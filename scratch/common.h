@@ -83,8 +83,8 @@ uint32_t ecmp_seed = 1;
 
 bool use_precomputed_routes = true; // New flag
 
-uint32_t qlen_dump_interval = 1000, qlen_mon_interval = 100;
-uint64_t qlen_mon_start = 0, qlen_mon_end = 2100000000;
+uint32_t qlen_dump_interval = 100000000, qlen_mon_interval = 10000000;
+uint64_t qlen_mon_start = 0, qlen_mon_end = 21000000000000;
 string qlen_mon_file;
 
 unordered_map<uint64_t, uint32_t> rate2kmax, rate2kmin;
@@ -209,8 +209,10 @@ void monitor_buffer(FILE *qlen_output, NodeContainer *n) {
     }
   }
   fflush(qlen_output);
-  Simulator::Schedule(NanoSeconds(qlen_mon_interval), &monitor_buffer,
-                      qlen_output, n);
+  if (Simulator::Now().GetTimeStep() < qlen_mon_end) {
+    Simulator::Schedule(NanoSeconds(qlen_mon_interval), &monitor_buffer,
+                        qlen_output, n);
+  }
 }
 
 void CalculateRoute(Ptr<Node> host) {
@@ -575,6 +577,8 @@ bool ReadConf(string network_configuration) {
       conf >> buffer_size;
     } else if (key.compare("QLEN_MON_FILE") == 0) {
       conf >> qlen_mon_file;
+    } else if (key.compare("QLEN_MON_INTERVAL") == 0) {
+      conf >> qlen_mon_interval;
     } else if (key.compare("QLEN_MON_START") == 0) {
       conf >> qlen_mon_start;
     } else if (key.compare("QLEN_MON_END") == 0) {
@@ -927,7 +931,7 @@ Ptr<FlowMonitor> SetupNetwork(void (*qp_finish)(FILE *, Ptr<RdmaQueuePair>)) {
   }
   SetRoutingEntries();
 
-  /*
+  
   //
   // get BDP and delay
   //
@@ -952,7 +956,7 @@ Ptr<FlowMonitor> SetupNetwork(void (*qp_finish)(FILE *, Ptr<RdmaQueuePair>)) {
     }
   }
   printf("maxRtt=%lu maxBdp=%lu\n", maxRtt, maxBdp);
-  */
+  
 
   //
   // setup switch CC
@@ -961,7 +965,7 @@ Ptr<FlowMonitor> SetupNetwork(void (*qp_finish)(FILE *, Ptr<RdmaQueuePair>)) {
     if (n.Get(i)->GetNodeType() == 1) { // switch
       Ptr<SwitchNode> sw = DynamicCast<SwitchNode>(n.Get(i));
       sw->SetAttribute("CcMode", UintegerValue(cc_mode));
-      // sw->SetAttribute("MaxRtt", UintegerValue(maxRtt));
+      sw->SetAttribute("MaxRtt", UintegerValue(maxRtt));
     }
   }
 
@@ -1015,7 +1019,7 @@ Ptr<FlowMonitor> SetupNetwork(void (*qp_finish)(FILE *, Ptr<RdmaQueuePair>)) {
         sim_setting.port_speed[node][intf] = bps;
       }
     }
-    // sim_setting.win = maxBdp;
+    sim_setting.win = maxBdp;
     // sim_setting.Serialize(trace_output);
   }
 
