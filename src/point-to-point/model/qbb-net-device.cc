@@ -279,21 +279,21 @@ namespace ns3 {
 				if (qIndex == -1){ // high prio
 					p = m_rdmaEQ->DequeueQindex(qIndex);
 					m_traceDequeue(p, 0);
-					std::cout << "FlowInfo-1, PktUID: " << p->GetUid()
-					<< std::endl;
+					// std::cout << "FlowInfo-1, PktUID: " << p->GetUid()
+					// << std::endl;
 					TransmitStart(p);
 					return;
 				}
 				// a qp dequeue a packet
 				Ptr<RdmaQueuePair> lastQp = m_rdmaEQ->GetQp(qIndex);
                 p = m_rdmaEQ->DequeueQindex(qIndex);
-				std::cout << "FlowInfo, PktSize: " << p->GetSize()
-				<< ", PktUID: " << p->GetUid()
-				<< ", OriginalSrc: " << lastQp->GetSrc()
-				<< ", FinalDst: " << lastQp->GetDest()
-				<< ", Sport: " << lastQp->GetPort()
-				<< ", FlowTag: " << lastQp->GetTag()
-				<< std::endl;
+				// std::cout << "FlowInfo, PktSize: " << p->GetSize()
+				// << ", PktUID: " << p->GetUid()
+				// << ", OriginalSrc: " << lastQp->GetSrc()
+				// << ", FinalDst: " << lastQp->GetDest()
+				// << ", Sport: " << lastQp->GetPort()
+				// << ", FlowTag: " << lastQp->GetTag()
+				// << std::endl;
 				// transmit
 				m_traceQpDequeue(p, lastQp);
 				TransmitStart(p);
@@ -514,12 +514,12 @@ namespace ns3 {
 	    Time txCompleteTime = txTime + m_tInterframeGap;
 	    NS_LOG_LOGIC("Schedule TransmitCompleteEvent in " << txCompleteTime.GetSeconds() << "sec");
 	    Simulator::Schedule(txCompleteTime, &QbbNetDevice::TransmitComplete, this);
-	    std::cout << "LinkTx, Timestamp: " << Simulator::Now().GetNanoSeconds() << "ns"
-				  << ", txCompleteTime: " << txCompleteTime.GetNanoSeconds() << "ns"
-				  << ", PktSize: " << p->GetSize()
-				  << ", PktUID: " << p->GetUid()
-	              << ", LinkSrc: " << m_node->GetId()
-	              << std::endl;
+	    // std::cout << "LinkTx, Timestamp: " << Simulator::Now().GetNanoSeconds() << "ns"
+		// 		  << ", txCompleteTime: " << txCompleteTime.GetNanoSeconds() << "ns"
+		// 		  << ", PktSize: " << p->GetSize()
+		// 		  << ", PktUID: " << p->GetUid()
+	    //           << ", LinkSrc: " << m_node->GetId()
+	    //           << std::endl;
 	    bool result = m_channel->TransmitStart(p, this, txTime);
 	    if (result == false)
 	    {

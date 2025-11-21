@@ -328,7 +328,7 @@ void RdmaHw::PCIePause(uint32_t nic_idx, uint32_t qIndex){
 	Ptr<Packet> p = dev->NICSendPfc(qIndex, 0);
 	m_nic[nic_idx].dev->RdmaEnqueueHighPrioQ(p);
     m_nic[nic_idx].dev->TriggerTransmit();
-	std::cout << "NIC pause "<< m_node->GetId() << " at " << Simulator::Now().GetNanoSeconds() << " paused " << m_paused_times << std::endl;
+	// std::cout << "NIC pause "<< m_node->GetId() << " at " << Simulator::Now().GetNanoSeconds() << " paused " << m_paused_times << std::endl;
     Simulator::Schedule(MicroSeconds(10), &RdmaHw::PCIeResume, this, nic_idx, qIndex);
 }
 
@@ -353,12 +353,12 @@ int RdmaHw::ReceiveUdp(Ptr<Packet> p, CustomHeader &ch){
 	int x = ReceiverCheckSeq(ch.udp.seq, rxQp, payload_size);
 
 	if(x !=1 && x!=2){
-		std::cout << Simulator::Now().GetNanoSeconds() << " Rx ";
+		// std::cout << Simulator::Now().GetNanoSeconds() << " Rx ";
 		Ipv4Address(ch.sip).Print(std::cout);
-		std::cout << " " << ch.udp.sport << " ";
+		// std::cout << " " << ch.udp.sport << " ";
 		Ipv4Address(ch.dip).Print(std::cout);
-		std::cout << " " << ch.udp.dport << " " << ch.udp.seq << " " << ch.udp.pg << " " << p->GetSize() << " " << payload_size;
-		std::cout << " ReceiverCheckSeq " << x << std::endl;
+		// std::cout << " " << ch.udp.dport << " " << ch.udp.seq << " " << ch.udp.pg << " " << p->GetSize() << " " << payload_size;
+		// std::cout << " ReceiverCheckSeq " << x << std::endl;
 	}
 
 	if (x == 1 || x == 2){ //generate ACK or NACK
