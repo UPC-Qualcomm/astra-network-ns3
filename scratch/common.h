@@ -319,6 +319,9 @@ void SetRoutingEntries() {
       Ipv4Address dstAddr = n.Get(dst_id)->GetObject<Ipv4>()->GetAddress(1, 0).GetLocal();
 
       for (auto const& [src_id, paths] : src_map) {
+        // Obtener la IP del nodo origen
+        Ipv4Address srcAddr = n.Get(src_id)->GetObject<Ipv4>()->GetAddress(1, 0).GetLocal();
+
         for (const auto& path : paths) {
           // A path is a sequence of node IDs, like [src, hop1, hop2, ..., dst]
           for (size_t i = 0; i < path.size() - 1; ++i) {
@@ -330,7 +333,8 @@ void SetRoutingEntries() {
                 uint32_t interface = nbr2if[current_node][next_hop_node].idx;
 
                 if (current_node->GetNodeType() == 1) { // Switch
-                  DynamicCast<SwitchNode>(current_node)->AddTableEntry(dstAddr, interface);
+                  // Use specific (Dst, Src) routing to enforce the path
+                  DynamicCast<SwitchNode>(current_node)->AddTableEntry(dstAddr, srcAddr, interface);
                 } else { // Host
                   current_node->GetObject<RdmaDriver>()->m_rdma->AddTableEntry(dstAddr, interface);
                 }
@@ -784,7 +788,7 @@ Ptr<FlowMonitor> SetupNetwork(void (*qp_finish)(FILE *, Ptr<RdmaQueuePair>)) {
     }
 
     // used to create a graph of the topology
-    nbr2if[snode][dnode].idx =
+        nbr2if[snode][dnode].idx =
         DynamicCast<QbbNetDevice>(d.Get(0))->GetIfIndex();
     nbr2if[snode][dnode].up = true;
     nbr2if[snode][dnode].delay =

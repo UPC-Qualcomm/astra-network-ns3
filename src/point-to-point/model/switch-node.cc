@@ -61,32 +61,42 @@ SwitchNode::SwitchNode(){
 }
 
 int SwitchNode::GetOutDev(Ptr<const Packet> p, CustomHeader &ch){
-	// look up entries
-	auto entry = m_rtTable.find(ch.dip);
+    // 1. Priority Check: Source-Destination specific route
+    // If found, return immediately (Deterministic routing)
+    auto dstIt = m_srcDstTable.find(ch.dip);
+    if (dstIt != m_srcDstTable.end()) {
+        auto srcIt = dstIt->second.find(ch.sip);
+        if (srcIt != dstIt->second.end()) {
+            return srcIt->second;
+        }
+    }
 
-	// no matching entry
-	if (entry == m_rtTable.end())
-		return -1;
+    // look up entries
+    auto entry = m_rtTable.find(ch.dip);
 
-	// entry found
-	auto &nexthops = entry->second;
+    // no matching entry
+    if (entry == m_rtTable.end())
+        return -1;
 
-	// pick one next hop based on hash
-	union {
-		uint8_t u8[4+4+2+2];
-		uint32_t u32[3];
-	} buf;
-	buf.u32[0] = ch.sip;
-	buf.u32[1] = ch.dip;
-	if (ch.l3Prot == 0x6)
-		buf.u32[2] = ch.tcp.sport | ((uint32_t)ch.tcp.dport << 16);
-	else if (ch.l3Prot == 0x11)
-		buf.u32[2] = ch.udp.sport | ((uint32_t)ch.udp.dport << 16);
-	else if (ch.l3Prot == 0xFC || ch.l3Prot == 0xFD)
-		buf.u32[2] = ch.ack.sport | ((uint32_t)ch.ack.dport << 16);
+    // entry found
+    auto &nexthops = entry->second;
 
-	uint32_t idx = EcmpHash(buf.u8, 12, m_ecmpSeed) % nexthops.size();
-	return nexthops[idx];
+    // pick one next hop based on hash
+    union {
+        uint8_t u8[4+4+2+2];
+        uint32_t u32[3];
+    } buf;
+    buf.u32[0] = ch.sip;
+    buf.u32[1] = ch.dip;
+    if (ch.l3Prot == 0x6)
+        buf.u32[2] = ch.tcp.sport | ((uint32_t)ch.tcp.dport << 16);
+    else if (ch.l3Prot == 0x11)
+        buf.u32[2] = ch.udp.sport | ((uint32_t)ch.udp.dport << 16);
+    else if (ch.l3Prot == 0xFC || ch.l3Prot == 0xFD)
+        buf.u32[2] = ch.ack.sport | ((uint32_t)ch.ack.dport << 16);
+
+    uint32_t idx = EcmpHash(buf.u8, 12, m_ecmpSeed) % nexthops.size();
+    return nexthops[idx];
 }
 
 void SwitchNode::CheckAndSendPfc(uint32_t inDev, uint32_t qIndex){
@@ -181,12 +191,17 @@ void SwitchNode::SetEcmpSeed(uint32_t seed){
 }
 
 void SwitchNode::AddTableEntry(Ipv4Address &dstAddr, uint32_t intf_idx){
-	uint32_t dip = dstAddr.Get();
-	m_rtTable[dip].push_back(intf_idx);
+    uint32_t dip = dstAddr.Get();
+    m_rtTable[dip].push_back(intf_idx);
+}
+
+void SwitchNode::AddTableEntry(Ipv4Address &dstAddr, Ipv4Address &srcAddr, uint32_t intf_idx){
+    m_srcDstTable[dstAddr.Get()][srcAddr.Get()] = intf_idx;
 }
 
 void SwitchNode::ClearTable(){
-	m_rtTable.clear();
+    m_rtTable.clear();
+    m_srcDstTable.clear();
 }
 
 // This function can only be called in switch mode
