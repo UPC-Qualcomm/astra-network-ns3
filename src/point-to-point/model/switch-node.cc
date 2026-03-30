@@ -11,6 +11,7 @@
 #include "ppp-header.h"
 #include "ns3/simulator.h"
 #include "ns3/int-header.h"
+#include <algorithm>
 #include <cmath>
 
 namespace ns3 {
@@ -61,13 +62,30 @@ SwitchNode::SwitchNode(){
 }
 
 int SwitchNode::GetOutDev(Ptr<const Packet> p, CustomHeader &ch){
-    // 1. Priority Check: Source-Destination specific route
-    // If found, return immediately (Deterministic routing)
+    // 1. Priority Check: Source-Destination specific precomputed routes
+    // If found, hash among the available next hops
     auto dstIt = m_srcDstTable.find(ch.dip);
     if (dstIt != m_srcDstTable.end()) {
         auto srcIt = dstIt->second.find(ch.sip);
-        if (srcIt != dstIt->second.end()) {
-            return srcIt->second;
+        if (srcIt != dstIt->second.end() && !srcIt->second.empty()) {
+            auto &nexthops = srcIt->second;
+            if (nexthops.size() == 1)
+                return nexthops[0];
+            // Hash among multiple precomputed paths
+            union {
+                uint8_t u8[4+4+2+2];
+                uint32_t u32[3];
+            } buf;
+            buf.u32[0] = ch.sip;
+            buf.u32[1] = ch.dip;
+            if (ch.l3Prot == 0x6)
+                buf.u32[2] = ch.tcp.sport | ((uint32_t)ch.tcp.dport << 16);
+            else if (ch.l3Prot == 0x11)
+                buf.u32[2] = ch.udp.sport | ((uint32_t)ch.udp.dport << 16);
+            else if (ch.l3Prot == 0xFC || ch.l3Prot == 0xFD)
+                buf.u32[2] = ch.ack.sport | ((uint32_t)ch.ack.dport << 16);
+            uint32_t idx = EcmpHash(buf.u8, 12, m_ecmpSeed) % nexthops.size();
+            return nexthops[idx];
         }
     }
 
@@ -196,7 +214,11 @@ void SwitchNode::AddTableEntry(Ipv4Address &dstAddr, uint32_t intf_idx){
 }
 
 void SwitchNode::AddTableEntry(Ipv4Address &dstAddr, Ipv4Address &srcAddr, uint32_t intf_idx){
-    m_srcDstTable[dstAddr.Get()][srcAddr.Get()] = intf_idx;
+    auto &entries = m_srcDstTable[dstAddr.Get()][srcAddr.Get()];
+    // Avoid duplicate interface entries
+    if (std::find(entries.begin(), entries.end(), (int)intf_idx) == entries.end()) {
+        entries.push_back(intf_idx);
+    }
 }
 
 void SwitchNode::ClearTable(){

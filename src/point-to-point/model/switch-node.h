@@ -2,6 +2,7 @@
 #define SWITCH_NODE_H
 
 #include <unordered_map>
+#include <vector>
 #include <ns3/node.h>
 #include "qbb-net-device.h"
 #include "switch-mmu.h"
@@ -17,9 +18,9 @@ class SwitchNode : public Node{
     uint32_t m_ecmpSeed;
     std::unordered_map<uint32_t, std::vector<int> > m_rtTable; // map from ip address (u32) to possible ECMP port (index of dev)
     
-    // New table for Source-Destination specific routing (avoids ECMP hashing for specific flows)
-    // Map: Destination IP (u32) -> Source IP (u32) -> Interface Index
-    std::unordered_map<uint32_t, std::unordered_map<uint32_t, uint32_t>> m_srcDstTable;
+    // New table for Source-Destination specific routing with multiple precomputed paths
+    // Map: Destination IP (u32) -> Source IP (u32) -> vector of possible interface indices
+    std::unordered_map<uint32_t, std::unordered_map<uint32_t, std::vector<int>>> m_srcDstTable;
 
     // monitor of PFC
     uint32_t m_bytes[pCnt][pCnt][qCnt]; // m_bytes[inDev][outDev][qidx] is the bytes from inDev enqueued for outDev at qidx
