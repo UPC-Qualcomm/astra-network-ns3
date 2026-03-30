@@ -354,9 +354,9 @@ int RdmaHw::ReceiveUdp(Ptr<Packet> p, CustomHeader &ch){
 
 	if(x !=1 && x!=2){
 		// std::cout << Simulator::Now().GetNanoSeconds() << " Rx ";
-		Ipv4Address(ch.sip).Print(std::cout);
+		// Ipv4Address(ch.sip).Print(std::cout);
 		// std::cout << " " << ch.udp.sport << " ";
-		Ipv4Address(ch.dip).Print(std::cout);
+		// Ipv4Address(ch.dip).Print(std::cout);
 		// std::cout << " " << ch.udp.dport << " " << ch.udp.seq << " " << ch.udp.pg << " " << p->GetSize() << " " << payload_size;
 		// std::cout << " ReceiverCheckSeq " << x << std::endl;
 	}
